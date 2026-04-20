@@ -17,7 +17,7 @@ import (
 	"tailscale.com/client/tailscale/v2"
 )
 
-const testWebhook = `
+const testWebhookCreate = `
 	resource "tailscale_webhook" "test_webhook" {
 		endpoint_url = "https://example.com/endpoint"
 		provider_type = "slack"
@@ -42,8 +42,8 @@ func TestProvider_TailscaleWebhook(t *testing.T) {
 		},
 		ProtoV5ProviderFactories: testProviderFactories(t),
 		Steps: []resource.TestStep{
-			testResourceCreated("tailscale_webhook.test_webhook", testWebhook),
-			testResourceDestroyed("tailscale_webhook.test_webhook", testWebhook),
+			testResourceCreated("tailscale_webhook.test_webhook", testWebhookCreate),
+			testResourceDestroyed("tailscale_webhook.test_webhook", testWebhookCreate),
 		},
 	})
 }
@@ -75,6 +75,21 @@ func TestAccTailscaleWebhook(t *testing.T) {
 		}
 	}
 
+	createCheck := resource.ComposeTestCheckFunc(
+		checkResourceRemoteProperties(
+			resourceName,
+			checkProperties([]tailscale.WebhookSubscriptionType{
+				tailscale.WebhookNodeCreated,
+				tailscale.WebhookUserNeedsApproval,
+			}),
+		),
+		resource.TestCheckResourceAttr(resourceName, "endpoint_url", "https://example.com/endpoint"),
+		resource.TestCheckResourceAttr(resourceName, "provider_type", "slack"),
+		resource.TestCheckTypeSetElemAttr(resourceName, "subscriptions.*", "userNeedsApproval"),
+		resource.TestCheckTypeSetElemAttr(resourceName, "subscriptions.*", "nodeCreated"),
+		resource.TestCheckResourceAttrSet(resourceName, "secret"),
+	)
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV5ProviderFactories: testAccProviderFactories(t),
@@ -87,21 +102,8 @@ func TestAccTailscaleWebhook(t *testing.T) {
 		}),
 		Steps: []resource.TestStep{
 			{
-				Config: testWebhook,
-				Check: resource.ComposeTestCheckFunc(
-					checkResourceRemoteProperties(
-						resourceName,
-						checkProperties([]tailscale.WebhookSubscriptionType{
-							tailscale.WebhookNodeCreated,
-							tailscale.WebhookUserNeedsApproval,
-						}),
-					),
-					resource.TestCheckResourceAttr(resourceName, "endpoint_url", "https://example.com/endpoint"),
-					resource.TestCheckResourceAttr(resourceName, "provider_type", "slack"),
-					resource.TestCheckTypeSetElemAttr(resourceName, "subscriptions.*", "userNeedsApproval"),
-					resource.TestCheckTypeSetElemAttr(resourceName, "subscriptions.*", "nodeCreated"),
-					resource.TestCheckResourceAttrSet(resourceName, "secret"),
-				),
+				Config: testWebhookCreate,
+				Check:  createCheck,
 			},
 			{
 				Config: testWebhookUpdate,
@@ -130,4 +132,10 @@ func TestAccTailscaleWebhook(t *testing.T) {
 			},
 		},
 	})
+
+	// Migration test to ensure the resource is unchanged when migrating
+	// from the plugin SDK to the plugin framework.
+	//
+	// See https://developer.hashicorp.com/terraform/plugin/framework/migrating/testing#terraform-data-resource-example
+	checkResourceIsUnchangedInPluginFramework(t, testWebhookCreate, createCheck)
 }
